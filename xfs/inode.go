@@ -320,6 +320,9 @@ func (xfs *FileSystem) inodeFormatLocal(r io.Reader, inode Inode) (Inode, error)
 			inode.directoryLocal.entries = append(inode.directoryLocal.entries, *entry)
 		}
 	} else if inode.inodeCore.IsSymlink() {
+		if inode.inodeCore.Size > XFS_SYMLINK_MAXLEN {
+			return Inode{}, xerrors.Errorf("symlink size %d is above XFS_SYMLINK_MAXLEN %d (inode %d)", inode.inodeCore.Size, XFS_SYMLINK_MAXLEN, inode.inodeCore.Ino)
+		}
 		inode.symlinkString = &SymlinkString{}
 		buf := make([]byte, inode.inodeCore.Size)
 		n, err := r.Read(buf)
