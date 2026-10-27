@@ -1,5 +1,10 @@
 package xfs
 
+import (
+	"fmt"
+	"strings"
+)
+
 type SuperBlock struct {
 	Magicnum   uint32
 	BlockSize  uint32
@@ -121,4 +126,59 @@ func (sb SuperBlock) HasSparseInodes() bool {
 // The feature words after Features2 exist only in a version 5 superblock.
 func (sb SuperBlock) IsV5() bool {
 	return sb.Versionnum&XFS_SB_VERSION_NUMBITS == XFS_SB_VERSION_5
+}
+
+// incompatNames are the XFS_SB_FEAT_INCOMPAT_* bits of Linux
+// fs/xfs/libxfs/xfs_format.h (v6.17), in bit order.
+var incompatNames = []struct {
+	bit  uint32
+	name string
+}{
+	{XFS_SB_FEAT_INCOMPAT_FTYPE, "FTYPE"},
+	{XFS_SB_FEAT_INCOMPAT_SPINODES, "SPINODES"},
+	{XFS_SB_FEAT_INCOMPAT_META_UUID, "META_UUID"},
+	{XFS_SB_FEAT_INCOMPAT_BIGTIME, "BIGTIME"},
+	{XFS_SB_FEAT_INCOMPAT_NEEDSREPAIR, "NEEDSREPAIR"},
+	{XFS_SB_FEAT_INCOMPAT_NREXT64, "NREXT64"},
+	{XFS_SB_FEAT_INCOMPAT_EXCHRANGE, "EXCHRANGE"},
+	{XFS_SB_FEAT_INCOMPAT_PARENT, "PARENT"},
+	{XFS_SB_FEAT_INCOMPAT_METADIR, "METADIR"},
+	{XFS_SB_FEAT_INCOMPAT_ZONED, "ZONED"},
+	{XFS_SB_FEAT_INCOMPAT_ZONE_GAPS, "ZONE_GAPS"},
+}
+
+// supportedIncompat are the incompat bits this reader accepts: the ones present
+// on the disks where its output matched the Linux kernel's (gpt-xfs-nrext64
+// 0x2b = FTYPE|SPINODES|BIGTIME|NREXT64; gpt-xfs-new 0xeb = those plus
+// EXCHRANGE|PARENT). NEEDSREPAIR is never accepted.
+const supportedIncompat = XFS_SB_FEAT_INCOMPAT_FTYPE |
+	XFS_SB_FEAT_INCOMPAT_SPINODES |
+	XFS_SB_FEAT_INCOMPAT_BIGTIME |
+	XFS_SB_FEAT_INCOMPAT_NREXT64 |
+	XFS_SB_FEAT_INCOMPAT_EXCHRANGE |
+	XFS_SB_FEAT_INCOMPAT_PARENT
+
+// checkIncompat returns ErrUnsupportedFeature, naming the bits, if the
+// superblock sets an incompat bit outside supportedIncompat. Only a version 5
+// superblock has the feature words (xfs_sb_has_incompat_feature in Linux).
+func checkIncompat(sb SuperBlock) error {
+	if !sb.IsV5() {
+		return nil
+	}
+	bad := sb.FeaturesIncompat &^ supportedIncompat
+	if bad == 0 {
+		return nil
+	}
+	var names []string
+	known := uint32(0)
+	for _, n := range incompatNames {
+		known |= n.bit
+		if bad&n.bit != 0 {
+			names = append(names, n.name)
+		}
+	}
+	if bad&^known != 0 {
+		names = append(names, fmt.Sprintf("unknown bits 0x%x", bad&^known))
+	}
+	return fmt.Errorf("%w: incompat bits 0x%x (%s)", ErrUnsupportedFeature, bad, strings.Join(names, ", "))
 }

@@ -25,6 +25,11 @@ var (
 
 	ErrOpenSymlink = xerrors.New("symlink open not support")
 	ErrNotSymlink  = xerrors.New("not a symlink")
+
+	// ErrUnsupportedFeature is returned by NewFS when the superblock has an
+	// incompat feature bit this reader was not measured against, or
+	// NEEDSREPAIR. The error text names the bits.
+	ErrUnsupportedFeature = xerrors.New("unsupported file system feature")
 )
 
 var (
@@ -53,6 +58,9 @@ func NewFS(r io.SectionReader, cache Cache[string, any]) (*FileSystem, error) {
 	primaryAG, err := ParseAG(&r, 0)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse primary allocation group: %w", err)
+	}
+	if err := checkIncompat(primaryAG.SuperBlock); err != nil {
+		return nil, err
 	}
 
 	if cache == nil {
