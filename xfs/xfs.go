@@ -2,6 +2,7 @@ package xfs
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"io/fs"
@@ -23,6 +24,7 @@ var (
 	_ fs.DirEntry = dirEntry{}
 
 	ErrOpenSymlink = xerrors.New("symlink open not support")
+	ErrNotSymlink  = xerrors.New("not a symlink")
 )
 
 var (
@@ -210,6 +212,104 @@ func (xfs *FileSystem) wrapError(op, path string, err error) error {
 		Path: path,
 		Err:  err,
 	}
+}
+
+// ReadLink returns the target of the symbolic link name, as stored on disk.
+// It never follows the link. The signature is that of ReadLink in io/fs.ReadLinkFS.
+func (xfs *FileSystem) ReadLink(name string) (string, error) {
+	const op = "readlink"
+
+	if !fs.ValidPath(name) {
+		return "", xfs.wrapError(op, name, fs.ErrInvalid)
+	}
+	info, err := xfs.ReadDirInfo(name)
+	if err != nil {
+		return "", xfs.wrapError(op, name, err)
+	}
+	fi, ok := info.(FileInfo)
+	if !ok || !fi.inode.inodeCore.IsSymlink() {
+		return "", xfs.wrapError(op, name, ErrNotSymlink)
+	}
+	target, err := xfs.symlinkTarget(fi.inode)
+	if err != nil {
+		return "", xfs.wrapError(op, name, err)
+	}
+	return target, nil
+}
+
+// symlinkTarget returns the target of a symlink inode: the data fork itself
+// (XFS_DINODE_FMT_LOCAL) or the blocks of its extents (XFS_DINODE_FMT_EXTENTS,
+// a "remote" symlink). The remote layout follows Linux
+// fs/xfs/libxfs/xfs_symlink_remote.c xfs_symlink_remote_read(): every extent is
+// one buffer; on a version 5 file system it starts with a 56-byte header
+// (XFS_SYMLINK_MAGIC), checked as xfs_symlink_hdr_ok() does (offset, byte count,
+// owner). The header CRC, UUID and block number are not verified.
+func (xfs *FileSystem) symlinkTarget(inode *Inode) (string, error) {
+	if inode.symlinkString != nil {
+		return inode.symlinkString.Name, nil
+	}
+	if inode.symlinkExtents == nil {
+		return "", xerrors.New("symlink target not read: inode data fork is neither local nor extents")
+	}
+
+	size := inode.inodeCore.Size
+	if size == 0 || size > XFS_SYMLINK_MAXLEN {
+		return "", xerrors.Errorf("invalid symlink size %d, must be 1 to %d", size, XFS_SYMLINK_MAXLEN)
+	}
+	sb := xfs.PrimaryAG.SuperBlock
+	hdrSize := uint64(0)
+	if sb.IsV5() {
+		hdrSize = XFS_SYMLINK_HDR_SIZE
+	}
+
+	target := make([]byte, 0, size)
+	var nextOff uint64 // file block the next extent must start at
+	for _, rec := range inode.symlinkExtents.bmbtRecs {
+		left := size - uint64(len(target))
+		if left == 0 {
+			break
+		}
+		p := rec.Unpack()
+		if p.State != 0 {
+			return "", xerrors.New("symlink has an unwritten extent")
+		}
+		if p.StartOff != nextOff {
+			return "", xerrors.Errorf("symlink has a hole: extent starts at block %d, expected %d", p.StartOff, nextOff)
+		}
+		nextOff += p.BlockCount
+
+		extentBytes := p.BlockCount * uint64(sb.BlockSize)
+		if extentBytes <= hdrSize {
+			return "", xerrors.Errorf("symlink extent of %d bytes cannot hold a %d-byte header and data", extentBytes, hdrSize)
+		}
+		chunk := extentBytes - hdrSize
+		if chunk > left {
+			chunk = left
+		}
+		buf, err := xfs.readAt(sb.BlockToPhysicalOffset(p.StartBlock)*int64(sb.BlockSize), int(extentBytes))
+		if err != nil {
+			return "", xerrors.Errorf("failed to read symlink extent: %w", err)
+		}
+		if hdrSize != 0 {
+			if binary.BigEndian.Uint32(buf[0:]) != XFS_SYMLINK_MAGIC {
+				return "", xerrors.Errorf("symlink block has no XSLM magic")
+			}
+			if uint64(binary.BigEndian.Uint32(buf[4:])) != uint64(len(target)) {
+				return "", xerrors.Errorf("symlink block header offset does not match the %d bytes read so far", len(target))
+			}
+			if uint64(binary.BigEndian.Uint32(buf[8:])) != chunk {
+				return "", xerrors.Errorf("symlink block header bytes do not match the expected %d", chunk)
+			}
+			if binary.BigEndian.Uint64(buf[32:]) != inode.inodeCore.Ino {
+				return "", xerrors.Errorf("symlink block header owner is not inode %d", inode.inodeCore.Ino)
+			}
+		}
+		target = append(target, buf[hdrSize:hdrSize+chunk]...)
+	}
+	if uint64(len(target)) != size {
+		return "", xerrors.Errorf("symlink extents end short: read %d of %d bytes", len(target), size)
+	}
+	return string(target), nil
 }
 
 func (xfs *FileSystem) Open(name string) (fs.File, error) {

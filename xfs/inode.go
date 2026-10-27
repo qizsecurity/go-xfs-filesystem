@@ -38,7 +38,8 @@ type Inode struct {
 	regularBtree  *Btree
 
 	// S_IFLNK
-	symlinkString *SymlinkString
+	symlinkString  *SymlinkString
+	symlinkExtents *SymlinkExtents
 }
 
 type RegularExtent struct {
@@ -197,6 +198,10 @@ type Dir2SfEntry struct {
 }
 
 type Device struct{}
+
+type SymlinkExtents struct {
+	bmbtRecs []BmbtRec
+}
 
 type SymlinkString struct {
 	Name string
@@ -359,7 +364,11 @@ func (xfs *FileSystem) inodeFormatExtents(r io.Reader, inode Inode) (Inode, erro
 			return Inode{}, xerrors.Errorf("failed to parse regular bmbt recs: %w", err)
 		}
 	} else if inode.inodeCore.IsSymlink() {
-		log.Logger.Warn("not support XFS_DINODE_FMT_EXTENTS isSymlink")
+		inode.symlinkExtents = &SymlinkExtents{}
+		inode.symlinkExtents.bmbtRecs, err = xfs.parseBmbtRecs(r, inode.inodeCore.Nextents)
+		if err != nil {
+			return Inode{}, xerrors.Errorf("failed to parse symlink bmbt recs: %w", err)
+		}
 	} else {
 		log.Logger.Debugf("%+v\n", inode)
 		log.Logger.Debug("not support XFS_DINODE_FMT_EXTENTS")

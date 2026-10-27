@@ -114,3 +114,11 @@ func (sb SuperBlock) HasBigtime() bool {
 func (sb SuperBlock) HasSparseInodes() bool {
 	return sb.FeaturesIncompat&XFS_SB_FEAT_INCOMPAT_SPINODES != 0
 }
+
+// IsV5 returns true for a version 5 superblock (the "crc" file system), like
+// xfs_sb_is_v5() in Linux fs/xfs/libxfs/xfs_format.h:
+// sb_versionnum & XFS_SB_VERSION_NUMBITS == XFS_SB_VERSION_5.
+// The feature words after Features2 exist only in a version 5 superblock.
+func (sb SuperBlock) IsV5() bool {
+	return sb.Versionnum&XFS_SB_VERSION_NUMBITS == XFS_SB_VERSION_5
+}

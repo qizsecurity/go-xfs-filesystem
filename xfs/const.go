@@ -54,6 +54,12 @@ const (
 )
 
 const (
+	// Linux fs/xfs/libxfs/xfs_format.h: XFS_SB_VERSION_NUMBITS, XFS_SB_VERSION_5.
+	XFS_SB_VERSION_NUMBITS = 0x000f
+	XFS_SB_VERSION_5       = 5
+)
+
+const (
 	XFS_SB_VERSION2_RESERVED1BIT   = 0x00000001
 	XFS_SB_VERSION2_LAZYSBCOUNTBIT = 0x00000002 /* Superblk counters */
 	XFS_SB_VERSION2_RESERVED4BIT   = 0x00000004
@@ -96,6 +102,14 @@ const (
 	// extent counters (di_big_nextents at offset 24) instead of the legacy uint32
 	// di_nextents at offset 76.
 	XFS_DIFLAG2_NREXT64 = 1 << 4
+)
+
+const (
+	// Linux fs/xfs/libxfs/xfs_format.h: struct xfs_dsymlink_hdr is 56 bytes
+	// (sl_magic, sl_offset, sl_bytes, sl_crc, sl_uuid[16], sl_owner, sl_blkno, sl_lsn);
+	// XFS_SYMLINK_MAXLEN is the longest symlink target.
+	XFS_SYMLINK_HDR_SIZE = 56
+	XFS_SYMLINK_MAXLEN   = 1024
 )
 
 const (
