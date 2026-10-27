@@ -3,7 +3,6 @@ package xfs
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"io"
 	"math"
 	"unsafe"
@@ -370,7 +369,6 @@ func (xfs *FileSystem) inodeFormatExtents(r io.Reader, inode Inode) (Inode, erro
 			return Inode{}, xerrors.Errorf("failed to parse symlink bmbt recs: %w", err)
 		}
 	} else {
-		log.Logger.Debugf("%+v\n", inode)
 		log.Logger.Debug("not support XFS_DINODE_FMT_EXTENTS")
 	}
 
@@ -579,19 +577,16 @@ func (xfs *FileSystem) ParseInode(ino uint64) (*Inode, error) {
 	case XFS_DINODE_FMT_LOCAL:
 		inode, err = xfs.inodeFormatLocal(r, inode)
 		if err != nil {
-			log.Logger.Debug("\n", hex.Dump(buf))
 			return nil, xerrors.Errorf("parse inode format local: %w", err)
 		}
 	case XFS_DINODE_FMT_EXTENTS:
 		inode, err = xfs.inodeFormatExtents(r, inode)
 		if err != nil {
-			log.Logger.Debug("\n", hex.Dump(buf))
 			return nil, xerrors.Errorf("parse inode format extents: %w", err)
 		}
 	case XFS_DINODE_FMT_BTREE:
 		inode, err = xfs.inodeFormatBtree(r, inode)
 		if err != nil {
-			log.Logger.Debug("\n", hex.Dump(buf))
 			return nil, xerrors.Errorf("parse inode format btree: %w", err)
 		}
 	case XFS_DINODE_FMT_UUID:
@@ -943,7 +938,7 @@ func parseEntry(r io.Reader, i8count bool, hasFtype bool) (*Dir2SfEntry, error) 
 		return nil, err
 	}
 	if i != int(entry.Namelen) {
-		return nil, xerrors.Errorf("read name error: %s", string(buf))
+		return nil, xerrors.Errorf("read name error: expected namelen(%d) actual(%d)", entry.Namelen, i)
 	}
 	entry.EntryName = string(buf)
 	if hasFtype {
