@@ -558,8 +558,10 @@ func (i FileInfo) Name() string {
 	return i.name
 }
 
+// Sys returns the inode number (uint64) of the file. Two names of one file
+// (hard links) return the same number.
 func (i FileInfo) Sys() interface{} {
-	return nil
+	return i.inode.inodeCore.Ino
 }
 
 func (i FileInfo) Mode() fs.FileMode {
